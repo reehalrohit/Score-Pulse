@@ -5,11 +5,16 @@ import { getLiveEvents } from "@/lib/api";
 import { LiveEvent } from "@/lib/types";
 import LiveMatchCard from "./LiveMatchCard";
 
-export default function ScorePulseDashboard() {
+export default function ScorePulseDashboard({
+  sport = "all",
+}: {
+  sport?: string;
+}) {
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [lastUpdated, setLastUpdated] =
+    useState<Date | null>(null);
 
   async function load() {
     try {
@@ -20,8 +25,7 @@ export default function ScorePulseDashboard() {
       setEvents(data);
       setLastUpdated(new Date());
     } catch (err) {
-      console.error("Score Pulse live feed error:", err);
-
+      console.error(err);
       setError("Live scores are temporarily unavailable.");
     } finally {
       setLoading(false);
@@ -35,6 +39,13 @@ export default function ScorePulseDashboard() {
 
     return () => clearInterval(timer);
   }, []);
+
+  const filteredEvents =
+    sport === "all"
+      ? events
+      : events.filter(
+          (event) => event.sport === sport
+        );
 
   if (loading) {
     return (
@@ -55,7 +66,8 @@ export default function ScorePulseDashboard() {
 
       <div className="flex items-center justify-between text-xs text-zinc-500">
         <span>
-          {events.length} event{events.length === 1 ? "" : "s"}
+          {filteredEvents.length} event
+          {filteredEvents.length === 1 ? "" : "s"}
         </span>
 
         <span>
@@ -68,18 +80,19 @@ export default function ScorePulseDashboard() {
         </span>
       </div>
 
-      {events.length === 0 ? (
+      {filteredEvents.length === 0 ? (
         <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-8 text-center">
           <div className="text-lg font-bold">
-            No live events right now
+            No live events
           </div>
 
           <p className="mt-2 text-sm text-zinc-500">
-            Score Pulse will automatically refresh the scoreboard.
+            There are no events available for this sport
+            right now.
           </p>
         </div>
       ) : (
-        events.map((event) => (
+        filteredEvents.map((event) => (
           <LiveMatchCard
             key={event.id}
             event={event}
@@ -88,4 +101,4 @@ export default function ScorePulseDashboard() {
       )}
     </section>
   );
-          }
+      }
