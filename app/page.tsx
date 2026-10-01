@@ -1,4 +1,5 @@
 import ScorePulseDashboard from "@/components/ScorePulseDashboard";
+import SportNav from "@/components/SportNav";
 
 export default function Home() {
   return (
@@ -20,29 +21,17 @@ export default function Home() {
         </p>
       </header>
 
-      <nav className="mb-8 flex gap-2 overflow-x-auto">
-        {[
-          "Live",
-          "Cricket",
-          "Football",
-          "Basketball",
-          "Tennis",
-          "F1"
-        ].map((sport) => (
-          <button
-            key={sport}
-            className="whitespace-nowrap rounded-full border border-zinc-800 px-4 py-2 text-sm hover:bg-zinc-900"
-          >
-            {sport}
-          </button>
-        ))}
-      </nav>
+      <div className="mb-8">
+        <SportNav />
+      </div>
 
       <div className="mb-5 flex items-center justify-between">
-        <h2 className="text-xl font-bold">Live Now</h2>
+        <h2 className="text-xl font-bold">
+          Live Now
+        </h2>
 
         <span className="text-xs text-zinc-500">
-          Updates every 30s
+          Auto-refresh · 30s
         </span>
       </div>
 
