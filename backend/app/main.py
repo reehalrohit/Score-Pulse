@@ -1,5 +1,7 @@
-from fastapi import FastAPI
-from .sportly_provider import get_live_events
+from fastapi import FastAPI, Query
+from fastapi.responses import JSONResponse
+
+from .sportly_provider import get_live_events, search_live_events
 from .event_provider import get_event_details
 
 
@@ -32,9 +34,28 @@ def live_scores():
 
     return {
         "success": True,
+        "source": "sportly",
         "updatedAt": result["updatedAt"],
         "events": result["events"],
         "errors": result["errors"],
+    }
+
+
+@app.get("/api/search")
+def search(q: str = Query(default="", max_length=100)):
+    query = q.strip()
+
+    if not query:
+        return {
+            "success": True,
+            "source": "sportly",
+            "results": [],
+        }
+
+    return {
+        "success": True,
+        "source": "sportly",
+        "results": search_live_events(query),
     }
 
 
@@ -43,9 +64,12 @@ def event_details(event_id: str):
     result = get_event_details(event_id)
 
     if result is None:
-        return {
-            "success": False,
-            "event": None,
-        }
+        return JSONResponse(
+            status_code=404,
+            content={
+                "success": False,
+                "event": None,
+            },
+        )
 
     return result

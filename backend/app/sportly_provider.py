@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -24,6 +25,10 @@ SPORT_CONFIG = [
     ("other", "field_hockey", "womens-college-field-hockey"),
     ("other", "australian_football", "afl"),
 ]
+
+CACHE_TTL_SECONDS = 20
+_live_cache: dict[str, Any] | None = None
+_live_cache_at = 0.0
 
 
 def serialize(value: Any) -> Any:
@@ -49,10 +54,7 @@ def serialize(value: Any) -> Any:
         return [serialize(item) for item in value]
 
     if isinstance(value, dict):
-        return {
-            str(key): serialize(item)
-            for key, item in value.items()
-        }
+        return {str(key): serialize(item) for key, item in value.items()}
 
     if isinstance(value, (str, int, float, bool)):
         return value
@@ -64,7 +66,6 @@ def first_value(*values):
     for value in values:
         if value is not None and value != "":
             return value
-
     return None
 
 
@@ -81,15 +82,10 @@ def get_competitors(event: dict[str, Any]):
 
 def get_team(competitor: dict[str, Any]) -> dict[str, Any]:
     team = competitor.get("team") or {}
+    logos = team.get("logos") or []
 
     return {
-        "id": str(
-            first_value(
-                team.get("id"),
-                competitor.get("id"),
-                "unknown",
-            )
-        ),
+        "id": str(first_value(team.get("id"), competitor.get("id"), "unknown")),
         "name": first_value(
             team.get("displayName"),
             team.get("name"),
@@ -103,11 +99,7 @@ def get_team(competitor: dict[str, Any]) -> dict[str, Any]:
         ),
         "logo": first_value(
             team.get("logo"),
-            (
-                (team.get("logos") or [{}])[0].get("href")
-                if team.get("logos")
-                else None
-            ),
+            logos[0].get("href") if logos and isinstance(logos[0], dict) else None,
         ),
     }
 
@@ -117,19 +109,10 @@ def get_status(event: dict[str, Any]) -> str:
     status_type = status.get("type") or {}
 
     state = str(
-        first_value(
-            status_type.get("state"),
-            status.get("state"),
-            "",
-        )
+        first_value(status_type.get("state"), status.get("state"), "")
     ).lower()
-
     name = str(
-        first_value(
-            status_type.get("name"),
-            status.get("name"),
-            "",
-        )
+        first_value(status_type.get("name"), status.get("name"), "")
     ).lower()
 
     if "postpon" in name or "postpon" in state:
@@ -141,7 +124,6 @@ def get_status(event: dict[str, Any]) -> str:
     if state in {"in", "live"}:
         if "halftime" in name or "half" in name:
             return "halftime"
-
         return "live"
 
     if state in {"post", "finished", "complete"}:
@@ -162,16 +144,18 @@ def get_score(
 
     for competitor in competitors:
         side = str(competitor.get("homeAway", "")).lower()
+        linescores = competitor.get("linescores") or []
+        latest_linescore = linescores[-1] if linescores else {}
+
         score = first_value(
             competitor.get("score"),
-            (competitor.get("linescores") or [{}])[-1].get("value")
-            if competitor.get("linescores")
+            latest_linescore.get("value")
+            if isinstance(latest_linescore, dict)
             else None,
         )
 
         if side == "home":
             home = score
-
         elif side == "away":
             away = score
 
@@ -179,6 +163,7 @@ def get_score(
         return None
 
     status = event.get("status") or {}
+    status_type = status.get("type") or {}
 
     return {
         "home": first_value(home, "-"),
@@ -186,8 +171,8 @@ def get_score(
         "period": first_value(
             status.get("displayClock"),
             status.get("clock"),
-            (status.get("type") or {}).get("shortDetail"),
-            (status.get("type") or {}).get("detail"),
+            status_type.get("shortDetail"),
+            status_type.get("detail"),
         ),
     }
 
@@ -199,7 +184,6 @@ def normalize_event(
     league_name: str | None = None,
 ) -> dict[str, Any] | None:
     event_id = event.get("id")
-
     if not event_id:
         return None
 
@@ -213,7 +197,6 @@ def normalize_event(
         ),
         None,
     )
-
     away_competitor = next(
         (
             item
@@ -226,17 +209,11 @@ def normalize_event(
     if home_competitor is None or away_competitor is None:
         return None
 
-    competition = (
-        (event.get("competitions") or [{}])[0]
-        if event.get("competitions")
-        else {}
-    )
+    competitions = event.get("competitions") or []
+    competition = competitions[0] if competitions else {}
 
-    event_league = (
-        event.get("league")
-        or competition.get("league")
-        or {}
-    )
+    event_league = event.get("league") or competition.get("league") or {}
+    event_logos = event_league.get("logos") or []
 
     name = first_value(
         event_league.get("name"),
@@ -245,27 +222,28 @@ def normalize_event(
         league_id,
     )
 
+    broadcasts = competition.get("broadcasts") or []
+    broadcast_names = (
+        broadcasts[0].get("names")
+        if broadcasts and isinstance(broadcasts[0], dict)
+        else []
+    )
+    broadcast = broadcast_names[0] if broadcast_names else None
+
+    venue_data = competition.get("venue") or {}
+
     return {
         "id": f"{sport}-{event_id}",
         "sport": sport,
         "league": {
-            "id": str(
-                first_value(
-                    event_league.get("id"),
-                    league_id,
-                )
-            ),
+            "id": str(first_value(event_league.get("id"), league_id)),
             "name": name,
-            "country": first_value(
-                event_league.get("country"),
-            ),
+            "country": first_value(event_league.get("country")),
             "logo": first_value(
                 event_league.get("logo"),
-                (
-                    (event_league.get("logos") or [{}])[0].get("href")
-                    if event_league.get("logos")
-                    else None
-                ),
+                event_logos[0].get("href")
+                if event_logos and isinstance(event_logos[0], dict)
+                else None,
             ),
         },
         "status": get_status(event),
@@ -276,18 +254,8 @@ def normalize_event(
         "home": get_team(home_competitor),
         "away": get_team(away_competitor),
         "score": get_score(event, competitors),
-        "venue": first_value(
-            competition.get("venue", {}).get("fullName")
-            if competition.get("venue")
-            else None,
-        ),
-        "broadcast": first_value(
-            (
-                competition.get("broadcasts") or [{}]
-            )[0].get("names", [None])[0]
-            if competition.get("broadcasts")
-            else None,
-        ),
+        "venue": first_value(venue_data.get("fullName")),
+        "broadcast": first_value(broadcast),
     }
 
 
@@ -296,61 +264,43 @@ def extract_events(data: Any) -> list[dict[str, Any]]:
 
     if isinstance(data, dict):
         events = data.get("events")
-
         if isinstance(events, list):
             return events
 
-        # Some provider responses may wrap the scoreboard.
         for key in ("data", "content", "scoreboard"):
             nested = data.get(key)
 
             if isinstance(nested, dict):
                 nested_events = nested.get("events")
-
                 if isinstance(nested_events, list):
                     return nested_events
 
             if isinstance(nested, list):
-                return nested
+                return [item for item in nested if isinstance(item, dict)]
 
     if isinstance(data, list):
-        return [
-            item
-            for item in data
-            if isinstance(item, dict)
-        ]
+        return [item for item in data if isinstance(item, dict)]
 
     return []
 
 
 def load_sportly_module(module_name: str):
-    return importlib.import_module(
-        f"sportly.espn.{module_name}"
-    )
+    return importlib.import_module(f"sportly.espn.{module_name}")
 
 
-def get_live_events():
-    """
-    Fetch scoreboards from Sportly/ESPN and normalize them
-    into the Score Pulse LiveEvent schema.
-    """
-
+def _fetch_live_events() -> dict[str, Any]:
     events: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
 
     for sport, module_name, league in SPORT_CONFIG:
         try:
             module = load_sportly_module(module_name)
-
             raw = module.scoreboard(league)
-
             raw_dict = serialize(raw)
 
             league_name = None
-
             if isinstance(raw_dict, dict):
                 leagues = raw_dict.get("leagues") or []
-
                 if leagues and isinstance(leagues[0], dict):
                     league_name = first_value(
                         leagues[0].get("name"),
@@ -364,7 +314,6 @@ def get_live_events():
                     league_id=league,
                     league_name=league_name,
                 )
-
                 if normalized:
                     events.append(normalized)
 
@@ -380,3 +329,52 @@ def get_live_events():
         "events": events,
         "errors": errors,
     }
+
+
+def get_live_events(force_refresh: bool = False):
+    global _live_cache, _live_cache_at
+
+    now = time.monotonic()
+
+    if (
+        not force_refresh
+        and _live_cache is not None
+        and now - _live_cache_at < CACHE_TTL_SECONDS
+    ):
+        return _live_cache
+
+    result = _fetch_live_events()
+    _live_cache = result
+    _live_cache_at = now
+    return result
+
+
+def search_live_events(query: str, limit: int = 50):
+    q = query.strip().lower()
+
+    if not q:
+        return []
+
+    events = get_live_events()["events"]
+    results = []
+
+    for event in events:
+        haystack = " ".join(
+            str(value or "")
+            for value in (
+                event.get("home", {}).get("name"),
+                event.get("home", {}).get("shortName"),
+                event.get("away", {}).get("name"),
+                event.get("away", {}).get("shortName"),
+                event.get("league", {}).get("name"),
+                event.get("sport"),
+            )
+        ).lower()
+
+        if q in haystack:
+            results.append(event)
+
+        if len(results) >= limit:
+            break
+
+    return results
