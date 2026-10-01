@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { demoEvents } from "@/lib/demo-data";
 
 export const dynamic = "force-dynamic";
 
@@ -12,41 +11,36 @@ export async function GET(
   }
 ) {
   const { id } = await params;
-
   const backend = process.env.SCOREPULSE_API_URL;
 
-  if (backend) {
-    try {
-      const response = await fetch(
-        `${backend.replace(/\/$/, "")}/api/events/${encodeURIComponent(id)}`,
-        {
-          cache: "no-store",
-        }
-      );
-
-      if (response.ok) {
-        return NextResponse.json(await response.json());
-      }
-    } catch {}
-  }
-
-  const demo = demoEvents.find(
-    (event) => event.id === id
-  );
-
-  if (!demo) {
+  if (!backend) {
     return NextResponse.json(
       {
         success: false,
+        error: "SCOREPULSE_API_URL is not configured",
         event: null,
       },
-      { status: 404 }
+      { status: 500 }
     );
   }
 
-  return NextResponse.json({
-    success: true,
-    source: "demo",
-    event: demo,
-  });
+  try {
+    const response = await fetch(
+      `${backend.replace(/\/$/, "")}/api/events/${encodeURIComponent(id)}`,
+      { cache: "no-store" }
+    );
+
+    const data = await response.json();
+
+    return NextResponse.json(data, { status: response.status });
+  } catch {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Event backend unavailable",
+        event: null,
+      },
+      { status: 502 }
+    );
+  }
 }
