@@ -19,9 +19,18 @@ interface EventResponse {
 }
 
 async function getEvent(id: string): Promise<EventResponse> {
-  const base = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  const backend = process.env.SCOREPULSE_API_URL;
+
+  if (!backend) {
+    return { success: false, event: null };
+  }
+
   try {
-    const response = await fetch(`${base}/api/events/${encodeURIComponent(id)}`, { cache: "no-store" });
+    const response = await fetch(
+      `${backend.replace(/\/$/, "")}/api/events/${encodeURIComponent(id)}`,
+      { cache: "no-store" }
+    );
+
     if (!response.ok) return { success: false, event: null };
     return response.json();
   } catch {
