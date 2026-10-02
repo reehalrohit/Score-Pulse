@@ -4,12 +4,12 @@ from fastapi.responses import JSONResponse
 from .sportly_provider import get_live_events, search_live_events
 from .event_provider import get_event_details
 
-app = FastAPI(title="Score Pulse API", version="1.0.0")
+app = FastAPI(title="Score Pulse API", version="1.1.0")
 
 
 @app.get("/")
 def root():
-    return {"service": "score-pulse-api", "status": "online", "version": "1.0.0"}
+    return {"service": "score-pulse-api", "status": "online", "version": "1.1.0"}
 
 
 @app.get("/health")
@@ -24,6 +24,7 @@ def live_scores():
         "success": True,
         "source": "sportly",
         "updatedAt": result["updatedAt"],
+        "coverage": result.get("coverage", {}),
         "events": result["events"],
         "errors": result["errors"],
     }
